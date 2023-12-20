@@ -14,6 +14,8 @@ export interface PostConcept<PostContent> {
 }
 
 export class BasicPostConcept<PostContent> implements PostConcept<PostContent> {
+  public readonly posts = new DocCollection<PostDoc<PostContent>>("posts");
+
   async getPost(_id: ObjectId): Promise<PostDoc<PostContent>> {
     const post = await this.posts.readOne({ _id });
     if (post == null) {
@@ -21,7 +23,6 @@ export class BasicPostConcept<PostContent> implements PostConcept<PostContent> {
     }
     return post;
   }
-  public readonly posts = new DocCollection<PostDoc<PostContent>>("posts");
 
   async createPost(author: ObjectId, content: PostContent) {
     const _id = await this.posts.createOne({ author, content });

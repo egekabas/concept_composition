@@ -55,6 +55,7 @@ export class BasicUserConcept<UserData> implements UserConcept<UserData> {
   }
 }
 
+// We could implement any variation of the user concept
 export class PrivateUserConcept<UserData> implements UserConcept<UserData> {
   public readonly users = new DocCollection<UserDoc<UserData>>("private-users");
   async getUser(username: string): Promise<RemovePassword<UserDoc<UserData>>> {
