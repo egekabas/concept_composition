@@ -1,96 +1,87 @@
-import { ObjectId } from "mongodb";
+import { Filter, ObjectId } from "mongodb";
 import DocCollection, { BaseDoc } from "../framework/doc";
-import { BadValuesError, NotAllowedError, NotFoundError } from "./errors";
+import { BadValuesError } from "./errors";
 
-export interface UserDoc extends BaseDoc {
+export interface UserDoc<UserData> extends BaseDoc {
   username: string;
   password: string;
+  data: UserData;
+}
+export type RemovePassword<UserData> = Omit<UserData, "password">;
+function removePassword<UserData>(user: UserDoc<UserData>): RemovePassword<UserDoc<UserData>> {
+  //eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { password, ...rest } = user;
+  return rest;
 }
 
-export default class UserConcept {
-  public readonly users = new DocCollection<UserDoc>("users");
+export interface UserConcept<UserData> {
+  registerUser(username: string, password: string, data: UserData): Promise<ObjectId>;
+  authenticateUser(username: string, password: string): Promise<boolean>;
+  getUsers(query: Filter<RemovePassword<UserDoc<UserData>>>): Promise<RemovePassword<UserDoc<UserData>>[]>;
+  getUser(username: string): Promise<RemovePassword<UserDoc<UserData>>>;
+}
 
-  async create(username: string, password: string) {
-    await this.canCreate(username, password);
-    const _id = await this.users.createOne({ username, password });
-    return { msg: "User created successfully!", user: await this.users.readOne({ _id }) };
-  }
-
-  private sanitizeUser(user: UserDoc) {
-    // eslint-disable-next-line
-    const { password, ...rest } = user; // remove password
-    return rest;
-  }
-
-  async getUserById(_id: ObjectId) {
-    const user = await this.users.readOne({ _id });
-    if (user === null) {
-      throw new NotFoundError(`User not found!`);
-    }
-    return this.sanitizeUser(user);
-  }
-
-  async getUserByUsername(username: string) {
+export class BasicUserConcept<UserData> implements UserConcept<UserData> {
+  public readonly users = new DocCollection<UserDoc<UserData>>("basic-users");
+  async getUser(username: string): Promise<RemovePassword<UserDoc<UserData>>> {
     const user = await this.users.readOne({ username });
     if (user === null) {
-      throw new NotFoundError(`User not found!`);
+      throw new Error("User not found!");
     }
-    return this.sanitizeUser(user);
+    return removePassword(user);
   }
-
-  async idsToUsernames(ids: ObjectId[]) {
-    const users = await this.users.readMany({ _id: { $in: ids } });
-
-    // Store strings in Map because ObjectId comparison by reference is wrong
-    const idToUser = new Map(users.map((user) => [user._id.toString(), user]));
-    return ids.map((id) => idToUser.get(id.toString())?.username ?? "DELETED_USER");
+  async getUsers(query: Filter<RemovePassword<UserDoc<UserData>>>): Promise<RemovePassword<UserDoc<UserData>>[]> {
+    return (await this.users.readMany(query)).map((user) => {
+      //eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { password, ...rest } = user;
+      return rest;
+    });
   }
-
-  async getUsers(username?: string) {
-    // If username is undefined, return all users by applying empty filter
-    const filter = username ? { username } : {};
-    const users = (await this.users.readMany(filter)).map(this.sanitizeUser);
-    return users;
+  async registerUser(username: string, password: string, data: UserData) {
+    await this.canCreate(username, password);
+    return await this.users.createOne({ username, password, data });
   }
-
-  async authenticate(username: string, password: string) {
+  async authenticateUser(username: string, password: string) {
     const user = await this.users.readOne({ username, password });
-    if (!user) {
-      throw new NotAllowedError("Username or password is incorrect.");
-    }
-    return { msg: "Successfully authenticated.", _id: user._id };
+    return user ? true : false;
   }
-
-  async update(_id: ObjectId, update: Partial<UserDoc>) {
-    if (update.username !== undefined) {
-      await this.isUsernameUnique(update.username);
-    }
-    await this.users.updateOne({ _id }, update);
-    return { msg: "User updated successfully!" };
-  }
-
-  async delete(_id: ObjectId) {
-    await this.users.deleteOne({ _id });
-    return { msg: "User deleted!" };
-  }
-
-  async userExists(_id: ObjectId) {
-    const maybeUser = await this.users.readOne({ _id });
-    if (maybeUser === null) {
-      throw new NotFoundError(`User not found!`);
-    }
-  }
-
-  private async canCreate(username: string, password: string) {
+  async canCreate(username: string, password: string) {
     if (!username || !password) {
-      throw new BadValuesError("Username and password must be non-empty!");
+      throw new BadValuesError("Username and password must be provided!");
     }
-    await this.isUsernameUnique(username);
-  }
-
-  private async isUsernameUnique(username: string) {
     if (await this.users.readOne({ username })) {
-      throw new NotAllowedError(`User with username ${username} already exists!`);
+      throw new Error("Username already exists!");
+    }
+  }
+}
+
+export class PrivateUserConcept<UserData> implements UserConcept<UserData> {
+  public readonly users = new DocCollection<UserDoc<UserData>>("private-users");
+  async getUser(username: string): Promise<RemovePassword<UserDoc<UserData>>> {
+    const user = await this.users.readOne({ username });
+    if (user === null) {
+      throw new Error("User not found!");
+    }
+    return removePassword(user);
+  }
+  async registerUser(username: string, password: string, data: UserData): Promise<ObjectId> {
+    await this.canCreate(username, password);
+    return await this.users.createOne({ username, password, data });
+  }
+  async authenticateUser(username: string, password: string): Promise<boolean> {
+    const user = await this.users.readOne({ username, password });
+    return user ? true : false;
+  }
+  //eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async getUsers(query: Filter<RemovePassword<UserDoc<UserData>>>): Promise<RemovePassword<UserDoc<UserData>>[]> {
+    return []; // We will always prevent
+  }
+  async canCreate(username: string, password: string) {
+    if (!username || !password) {
+      throw new BadValuesError("Username and password must be provided!");
+    }
+    if (await this.users.readOne({ username })) {
+      throw new Error("Username already exists!");
     }
   }
 }
